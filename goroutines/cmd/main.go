@@ -62,14 +62,14 @@ func main() {
 
 	// Validate worker count
 	if *workers < 1 {
-		slog.Error(fmt.Sprintf("Error: number of workers must be positive, got: %d\n", *workers))
+		slog.Error(fmt.Sprintf("error: number of workers must be positive, got: %d\n", *workers))
 		os.Exit(1)
 	}
 
 	// Get all .txt files from the directory
 	txtFiles, err := internal.GetTxtFiles(directoryPath)
 	if err != nil {
-		slog.Error(fmt.Sprintf("Error reading directory: %v\n", err))
+		slog.Error("error reading directory", slog.Any("error", err))
 		os.Exit(1)
 	}
 
@@ -111,7 +111,7 @@ func main() {
 	// Check for any errors
 	for err := range errChan {
 		if err != nil {
-			slog.Error(fmt.Sprintf("Error processing file: %v\n", err))
+			slog.Error("error processing file", slog.Any("error", err))
 		}
 	}
 }

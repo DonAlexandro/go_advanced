@@ -3,6 +3,8 @@ package internal
 import (
 	"os"
 	"strings"
+
+	"github.com/mdobak/go-xerrors"
 )
 
 type Word struct {
@@ -14,7 +16,7 @@ type Word struct {
 func CountWordFrequency(filePath string) ([]Word, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Newf("failed to read a file %q: %w", filePath, err)
 	}
 
 	// Convert to lowercase and split into words

@@ -1,10 +1,11 @@
 package internal
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mdobak/go-xerrors"
 )
 
 // GetTxtFiles returns a list of all .txt file paths in the given directory
@@ -13,7 +14,7 @@ func GetTxtFiles(directoryPath string) ([]string, error) {
 
 	// Check if directory exists
 	if _, err := os.Stat(directoryPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("directory does not exist: %s", directoryPath)
+		return nil, xerrors.Newf("directory does not exist: %s: %w", directoryPath, err)
 	}
 
 	// Walk through the directory
@@ -31,7 +32,7 @@ func GetTxtFiles(directoryPath string) ([]string, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("error walking directory: %w", err)
+		return nil, xerrors.Newf("error walking directory: %w", err)
 	}
 
 	return txtFiles, nil
