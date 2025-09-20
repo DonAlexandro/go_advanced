@@ -3,9 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+
+	slogjson "github.com/veqryn/slog-json"
 
 	internal "github.com/DonAlexandro/go_advanced/internal"
 )
@@ -31,8 +34,17 @@ func worker(jobs <-chan string, results chan<- internal.FileWordFrequency, errCh
 }
 
 func main() {
+	h := slogjson.NewHandler(os.Stdout, &slogjson.HandlerOptions{
+		AddSource:   false,
+		Level:       slog.LevelInfo,
+		ReplaceAttr: nil, // Same signature and behavior as stdlib JSONHandler
+	})
+	// Default global logger
+	slog.SetDefault(slog.New(h))
+
 	// Command line flags
-	workers := flag.Int("w", 4, "Number of workers")
+	workers := flag.Int("w", 4, "Number of workers to process files concurrently")
+	// chunks := flag.Int("c", 2, "Number of chunks counting the words in files")
 	flag.Parse()
 
 	// Get positional arguments (non-flag arguments)
@@ -40,9 +52,9 @@ func main() {
 
 	// Check if directory path is provided
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: directory path is required\n")
-		fmt.Fprintf(os.Stderr, "Usage: %s <directory_path> [-w <num_workers>]\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Example: %s /path/to/files -w 8\n", os.Args[0])
+		slog.Error("directory path is required")
+		slog.Error(fmt.Sprintf("usage: %s <directory_path> [-w <num_workers>]\n", os.Args[0]))
+		slog.Error(fmt.Sprintf("example: %s /path/to/files -w 8\n", os.Args[0]))
 		os.Exit(1)
 	}
 
@@ -50,14 +62,14 @@ func main() {
 
 	// Validate worker count
 	if *workers < 1 {
-		fmt.Fprintf(os.Stderr, "Error: number of workers must be positive, got: %d\n", *workers)
+		slog.Error(fmt.Sprintf("Error: number of workers must be positive, got: %d\n", *workers))
 		os.Exit(1)
 	}
 
 	// Get all .txt files from the directory
 	txtFiles, err := internal.GetTxtFiles(directoryPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading directory: %v\n", err)
+		slog.Error(fmt.Sprintf("Error reading directory: %v\n", err))
 		os.Exit(1)
 	}
 
@@ -99,7 +111,7 @@ func main() {
 	// Check for any errors
 	for err := range errChan {
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error processing file: %v\n", err)
+			slog.Error(fmt.Sprintf("Error processing file: %v\n", err))
 		}
 	}
 }
