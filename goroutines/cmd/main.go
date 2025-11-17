@@ -8,18 +8,24 @@ import (
 	"path/filepath"
 	"sync"
 
-	slogjson "github.com/veqryn/slog-json"
-
 	internal "github.com/DonAlexandro/go_advanced/internal"
+	slogjson "github.com/veqryn/slog-json"
 )
 
-func worker(jobs <-chan string, results chan<- internal.FileWordFrequency, errChan chan<- error) {
-	for filePath := range jobs {
+type Worker struct {
+	jobs     <-chan string
+	results  chan<- internal.FileWordFrequency
+	errChan  chan<- error
+	counters *int
+}
+
+func (w Worker) work() {
+	for filePath := range w.jobs {
 		// Count word frequencies in the file
-		words, err := internal.CountWordFrequency(filePath)
+		words, err := internal.CountWordFrequency(filePath, w.counters)
 
 		if err != nil {
-			errChan <- err
+			w.errChan <- err
 			continue
 		}
 
@@ -29,7 +35,7 @@ func worker(jobs <-chan string, results chan<- internal.FileWordFrequency, errCh
 			Words:    words,
 		}
 
-		results <- result
+		w.results <- result
 	}
 }
 
@@ -44,7 +50,8 @@ func main() {
 
 	// Command line flags
 	workers := flag.Int("w", 4, "Number of workers to process files concurrently")
-	// chunks := flag.Int("c", 2, "Number of chunks counting the words in files")
+	counters := flag.Int("c", 2, "Number of goroutines counting the words in files")
+
 	flag.Parse()
 
 	// Get positional arguments (non-flag arguments)
@@ -62,7 +69,13 @@ func main() {
 
 	// Validate worker count
 	if *workers < 1 {
-		slog.Error(fmt.Sprintf("error: number of workers must be positive, got: %d\n", *workers))
+		slog.Error(fmt.Sprintf("number of workers must be positive, got: %d", *workers))
+		os.Exit(1)
+	}
+
+	// Validate counter goroutine count
+	if *counters < 1 {
+		slog.Error(fmt.Sprintf("number of counters must be positive, got: %d", *counters))
 		os.Exit(1)
 	}
 
@@ -84,7 +97,14 @@ func main() {
 	// Create and start the worker pool
 	for w := 1; w <= *workers; w++ {
 		wg.Go(func() {
-			worker(jobs, results, errChan)
+			worker := Worker{
+				jobs:     jobs,
+				results:  results,
+				errChan:  errChan,
+				counters: counters,
+			}
+
+			worker.work()
 		})
 	}
 
