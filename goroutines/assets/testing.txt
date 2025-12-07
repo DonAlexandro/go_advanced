@@ -1,3 +1,5 @@
+Verify that "Hello,", "hello", and "HELLO" are all counted as "hello”
+
 Testing Strategies for Concurrent Applications
 
 Testing concurrent applications presents unique challenges due to the non-deterministic nature of goroutine scheduling and the potential for race conditions. Effective testing strategies are essential for ensuring the correctness and reliability of concurrent Go programs.

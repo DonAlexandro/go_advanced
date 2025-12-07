@@ -34,8 +34,7 @@ func CountWordFrequency(filePath string, counters *int) ([]Word, error) {
 		return nil, xerrors.Newf("failed to read a file %q: %w", filePath, err)
 	}
 
-	// Convert to lowercase
-	text := strings.ToLower(string(content))
+	text := string(content)
 
 	// If text is too small or we only have 1 counter, process sequentially
 	if len(text) < 100 || *counters <= 1 {
@@ -124,19 +123,16 @@ func convertFrequencyToWord(frequency Frequency) []Word {
 	return result
 }
 
-// countWordFrequencyInChunk processes a text chunk and returns word frequencies
+// countWordFrequencyInChunk processes a text chunk using pipeline and returns word frequencies
 func countWordFrequencyInChunk(chunk string) map[string]int {
-	// Split by whitespace and remove punctuation
-	words := strings.FieldsFunc(chunk, func(c rune) bool {
-		return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
-	})
+	// Create preprocessor and run the 3-stage pipeline
+	preprocessor := &TextPreprocessor{}
+	words := preprocessor.PreprocessText(chunk)
 
 	// Count word frequencies using a map
 	frequency := make(Frequency)
-	for _, word := range words {
-		if len(word) > 0 { // Skip empty strings
-			frequency[word]++
-		}
+	for word := range words {
+		frequency[word]++
 	}
 
 	return frequency

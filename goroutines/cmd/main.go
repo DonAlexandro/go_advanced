@@ -7,16 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	internal "github.com/DonAlexandro/go_advanced/internal"
 	slogjson "github.com/veqryn/slog-json"
 )
 
 type Worker struct {
-	jobs     <-chan string
-	results  chan<- internal.FileWordFrequency
-	errChan  chan<- error
-	counters *int
+	jobs          <-chan string
+	results       chan<- internal.FileWordFrequency
+	errChan       chan<- error
+	counters      *int
+	mu            *sync.Mutex
+	doneCond      *sync.Cond
+	activeWorkers *int
 }
 
 func (w Worker) work() {
@@ -37,6 +41,12 @@ func (w Worker) work() {
 
 		w.results <- result
 	}
+
+	// Signal completion only after all channel operations are done
+	w.mu.Lock()
+	(*w.activeWorkers)--
+	w.doneCond.Broadcast()
+	w.mu.Unlock()
 }
 
 func main() {
@@ -53,6 +63,12 @@ func main() {
 	counters := flag.Int("c", 2, "Number of goroutines counting the words in files")
 
 	flag.Parse()
+
+	// Cap worker count at maximum of 10
+	if *workers > 10 {
+		slog.Warn("worker count capped at maximum", slog.Int("requested", *workers), slog.Int("actual", 10))
+		*workers = 10
+	}
 
 	// Get positional arguments (non-flag arguments)
 	args := flag.Args()
@@ -92,16 +108,29 @@ func main() {
 	results := make(chan internal.FileWordFrequency, jobsNum)
 	errChan := make(chan error, jobsNum)
 
+	// Setup graceful shutdown coordination with sync.Cond
+	var mu sync.Mutex
+	doneCond := sync.NewCond(&mu)
+	var activeWorkers int
+
 	var wg sync.WaitGroup
 
 	// Create and start the worker pool
 	for w := 1; w <= *workers; w++ {
+		// Increment active worker count before spawning
+		mu.Lock()
+		activeWorkers++
+		mu.Unlock()
+
 		wg.Go(func() {
 			worker := Worker{
-				jobs:     jobs,
-				results:  results,
-				errChan:  errChan,
-				counters: counters,
+				jobs:          jobs,
+				results:       results,
+				errChan:       errChan,
+				counters:      counters,
+				mu:            &mu,
+				doneCond:      doneCond,
+				activeWorkers: &activeWorkers,
 			}
 
 			worker.work()
@@ -116,16 +145,44 @@ func main() {
 	// Close the jobs to indicate no more filePaths will be provided after the loop
 	close(jobs)
 
-	// Wait for all workers to complete their tasks
+	// Wait for all workers to be spawned and registered
 	wg.Wait()
+
+	// Wait for all workers to complete their tasks using sync.Cond
+	mu.Lock()
+	for activeWorkers > 0 {
+		doneCond.Wait() // Releases mu, waits for Broadcast, reacquires mu
+	}
+	mu.Unlock()
 
 	// Close results and error channels after all workers finished
 	close(results)
 	close(errChan)
 
-	// Collect and print results
+	// Create results directory if it doesn't exist
+	resultsDir := "results"
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		slog.Error("failed to create results directory", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Generate filename with current date
+	currentTime := time.Now()
+	filename := filepath.Join(resultsDir, fmt.Sprintf("result_%s.md", currentTime.Format("2006-01-02_15-04-05")))
+
+	// Create the output file
+	file, err := os.Create(filename)
+	if err != nil {
+		slog.Error("failed to create output file", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer file.Close()
+
+	// Collect and write results to file
 	for result := range results {
-		fmt.Print(result.ToHumanReadable())
+		if _, err := file.WriteString(result.ToHumanReadable()); err != nil {
+			slog.Error("failed to write result to file", slog.Any("error", err))
+		}
 	}
 
 	// Check for any errors
@@ -134,4 +191,6 @@ func main() {
 			slog.Error("error processing file", slog.Any("error", err))
 		}
 	}
+
+	slog.Info("results written to file", slog.String("filename", filename))
 }
