@@ -3,6 +3,8 @@ package internal
 import (
 	"strings"
 	"unicode"
+
+	"github.com/DonAlexandro/go_advanced/pkg"
 )
 
 // TextPreprocessor handles text preprocessing using a pipeline pattern
@@ -96,7 +98,35 @@ func (tp *TextPreprocessor) SplitIntoWords(in <-chan string) <-chan string {
 	return out
 }
 
-// PreprocessText orchestrates the 3-stage pipeline for text preprocessing
+// FilterStopwords creates a pipeline stage that filters out stopwords
+func (tp *TextPreprocessor) FilterStopwords(in <-chan string) <-chan string {
+	// Create unbuffered output channel
+	out := make(chan string)
+
+	// Start goroutine to process input stream asynchronously
+	go func() {
+		// defer ensures output channel is properly closed
+		defer close(out)
+
+		// Process each word from input channel until it's closed
+		for word := range in {
+			// Check if word is a stopword using lazy-initialized set
+			// sync.Once ensures stopwords load exactly once across all goroutines
+			if !pkg.IsStopword(word) {
+				// Emit non-stopword to output channel
+				out <- word
+			}
+			// Stopwords are silently filtered out
+		}
+		// When input channel closes and all words filtered,
+		// defer close(out) signals consumer that no more words coming
+	}()
+
+	// Return receive-only channel immediately (non-blocking)
+	return out
+}
+
+// PreprocessText orchestrates the 4-stage pipeline for text preprocessing
 func (tp *TextPreprocessor) PreprocessText(text string) <-chan string {
 	// Create unbuffered initial channel to feed raw text
 	input := make(chan string)
@@ -122,7 +152,10 @@ func (tp *TextPreprocessor) PreprocessText(text string) <-chan string {
 	// Stage 3: Split cleaned text into individual words
 	words := tp.SplitIntoWords(cleaned)
 
+	// Stage 4: Filter out stopwords using lazy-initialized set
+	filtered := tp.FilterStopwords(words)
+
 	// Return final word stream channel
-	// Consumer will receive individual cleaned words one by one
-	return words
+	// Consumer will receive individual cleaned, non-stopword words one by one
+	return filtered
 }
