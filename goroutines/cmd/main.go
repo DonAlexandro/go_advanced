@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -63,6 +64,30 @@ func main() {
 	counters := flag.Int("c", 2, "Number of goroutines counting the words in files")
 
 	flag.Parse()
+
+	// Create profiles directory if it doesn't exist
+	profilesDir := "profiles"
+	if err := os.MkdirAll(profilesDir, 0755); err != nil {
+		slog.Error("failed to create profiles directory", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Start CPU profiling automatically
+	currentTime := time.Now()
+	cpuProfileFile := filepath.Join(profilesDir, fmt.Sprintf("cpu_profile_%s.prof", currentTime.Format("2006-01-02_15-04-05")))
+	f, err := os.Create(cpuProfileFile)
+	if err != nil {
+		slog.Error("could not create CPU profile", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	if err := pprof.StartCPUProfile(f); err != nil {
+		slog.Error("could not start CPU profile", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer pprof.StopCPUProfile()
+	slog.Info("CPU profiling enabled", slog.String("file", cpuProfileFile))
 
 	// Cap worker count at maximum of 10
 	if *workers > 10 {
@@ -167,7 +192,6 @@ func main() {
 	}
 
 	// Generate filename with current date
-	currentTime := time.Now()
 	filename := filepath.Join(resultsDir, fmt.Sprintf("result_%s.md", currentTime.Format("2006-01-02_15-04-05")))
 
 	// Create the output file
