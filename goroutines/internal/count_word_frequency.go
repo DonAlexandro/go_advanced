@@ -125,7 +125,8 @@ func convertFrequencyToWord(frequency Frequency) []Word {
 
 // countWordFrequencyInChunk processes a text chunk using pipeline and returns word frequencies
 func countWordFrequencyInChunk(chunk string) map[string]int {
-	// Create preprocessor and run the 3-stage pipeline
+	// Create preprocessor - pipeline stages will use the package-level sync.Pool
+	// to reuse string.Builder instances for reduced memory allocations
 	preprocessor := &TextPreprocessor{}
 	words := preprocessor.PreprocessText(chunk)
 

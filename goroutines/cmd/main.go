@@ -6,7 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime/pprof"
+
+	// "runtime/pprof"
 	"sync"
 	"time"
 
@@ -65,29 +66,20 @@ func main() {
 
 	flag.Parse()
 
-	// Create profiles directory if it doesn't exist
-	profilesDir := "profiles"
-	if err := os.MkdirAll(profilesDir, 0755); err != nil {
-		slog.Error("failed to create profiles directory", slog.Any("error", err))
-		os.Exit(1)
-	}
-
-	// Start CPU profiling automatically
+	// Setup profiling
 	currentTime := time.Now()
-	cpuProfileFile := filepath.Join(profilesDir, fmt.Sprintf("cpu_profile_%s.prof", currentTime.Format("2006-01-02_15-04-05")))
-	f, err := os.Create(cpuProfileFile)
-	if err != nil {
-		slog.Error("could not create CPU profile", slog.Any("error", err))
-		os.Exit(1)
-	}
-	defer f.Close()
+	// profilesDir := "profiles"
 
-	if err := pprof.StartCPUProfile(f); err != nil {
-		slog.Error("could not start CPU profile", slog.Any("error", err))
-		os.Exit(1)
-	}
-	defer pprof.StopCPUProfile()
-	slog.Info("CPU profiling enabled", slog.String("file", cpuProfileFile))
+	// Start CPU profiling
+	// cleanupCPU, err := internal.StartCPUProfiling(profilesDir, currentTime)
+	// if err != nil {
+	// 	slog.Error("failed to start CPU profiling", slog.Any("error", err))
+	// 	os.Exit(1)
+	// }
+	// defer cleanupCPU()
+
+	// Setup memory profiling
+	// defer internal.SetupMemoryProfiling(profilesDir, currentTime)()
 
 	// Cap worker count at maximum of 10
 	if *workers > 10 {
@@ -161,6 +153,22 @@ func main() {
 			worker.work()
 		})
 	}
+
+	// Allow all workers to be spawned before starting job distribution
+	// time.Sleep(10 * time.Millisecond)
+
+	// Capture goroutine profile while workers are spawned and waiting for jobs
+	// goroutineProfilePath := filepath.Join(profilesDir, fmt.Sprintf("goroutine_profile_%s.prof", currentTime.Format("2006-01-02_15-04-05")))
+	// goroutineProfileFile, err := os.Create(goroutineProfilePath)
+	// if err != nil {
+	// 	slog.Error("failed to create goroutine profile", slog.Any("error", err))
+	// } else {
+	// 	if err := pprof.Lookup("goroutine").WriteTo(goroutineProfileFile, 0); err != nil {
+	// 		slog.Error("failed to write goroutine profile", slog.Any("error", err))
+	// 	}
+	// 	goroutineProfileFile.Close()
+	// 	slog.Info("goroutine profile captured", slog.String("path", goroutineProfilePath))
+	// }
 
 	// Send all file paths to jobs channel
 	for _, filePath := range txtFiles {

@@ -2,10 +2,23 @@ package internal
 
 import (
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/DonAlexandro/go_advanced/pkg"
 )
+
+// builderPool is a package-level sync.Pool for reusing string.Builder instances
+// Shared across all goroutines to maximize buffer reuse efficiency
+var builderPool = sync.Pool{
+	New: func() any {
+		// Pre-allocate builder with 4KB capacity (typical file chunk size)
+		// Reduces allocation pressure during text processing
+		b := &strings.Builder{}
+		b.Grow(65536)
+		return b
+	},
+}
 
 // TextPreprocessor handles text preprocessing using a pipeline pattern
 type TextPreprocessor struct{}
@@ -18,25 +31,39 @@ func (tp *TextPreprocessor) ToLower(in <-chan string) <-chan string {
 	// Start goroutine to process input stream asynchronously
 	go func() {
 		// defer ensures output channel is properly closed
-		// Critical for pipeline termination propagation
 		defer close(out)
 
 		// Process each string from input channel until it's closed
-		// Range automatically handles channel closing - exits when in is closed and drained
 		for text := range in {
-			// Convert to lowercase and send to output
-			out <- strings.ToLower(text)
+			// Get builder from package-level pool to reduce allocations
+			builderIface := builderPool.Get()
+			builder := builderIface.(*strings.Builder)
+			builder.Reset()
+
+			// Manually process runes instead of strings.ToLower to:
+			// 1. Use pre-allocated builder from pool
+			// 2. Avoid strings.Map's temporary builder allocations
+			// 3. Reduce GC pressure
+			for _, r := range text {
+				builder.WriteRune(unicode.ToLower(r))
+			}
+
+			// Extract string and return builder to pool
+			lowered := builder.String()
+			builder.Reset()
+			builderPool.Put(builder)
+
+			// Send lowercased text to output
+			out <- lowered
 		}
-		// When input channel closes and all text processed,
-		// defer close(out) signals next stage that transformation is complete
 	}()
 
-	// Return receive-only channel immediately (non-blocking)
-	// Allows caller to start consuming transformed data
+	// Return receive-only channel immediately
 	return out
 }
 
 // RemovePunctuation creates a pipeline stage that removes non-alphanumeric characters
+// Uses sync.Pool to reuse string.Builder instances across goroutines
 func (tp *TextPreprocessor) RemovePunctuation(in <-chan string) <-chan string {
 	// Create unbuffered output channel
 	out := make(chan string)
@@ -48,15 +75,33 @@ func (tp *TextPreprocessor) RemovePunctuation(in <-chan string) <-chan string {
 
 		// Process each string from input channel until it's closed
 		for text := range in {
-			// Remove all non-letter and non-digit characters except spaces
-			// This preserves word boundaries for the next stage
-			cleaned := strings.Map(func(r rune) rune {
+			// Get builder from package-level pool to reduce allocations
+			// Avoids allocating new builder for every punctuation removal
+			builderIface := builderPool.Get()
+			builder := builderIface.(*strings.Builder)
+			// Reset clears content while keeping pre-allocated 4KB capacity
+			builder.Reset()
+
+			// Manually process runes instead of strings.Map to:
+			// 1. Use pre-allocated builder from pool
+			// 2. Avoid creating temporary builders in Map's implementation
+			// 3. Reduce GC pressure significantly
+			for _, r := range text {
 				if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
-					return r
+					builder.WriteRune(r)
+				} else {
+					// Replace punctuation with space to maintain word boundaries
+					builder.WriteRune(' ')
 				}
-				// Replace punctuation with space to maintain word boundaries
-				return ' '
-			}, text)
+			}
+
+			// Extract string while builder is reused
+			cleaned := builder.String()
+
+			// Return builder to pool for reuse by other goroutines
+			// Reset again to ensure clean state for next user
+			builder.Reset()
+			builderPool.Put(builder)
 
 			// Send cleaned text to output
 			out <- cleaned
